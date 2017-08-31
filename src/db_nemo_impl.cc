@@ -165,13 +165,13 @@ Status DBNemoImpl::StripTS(std::string* str) {
 }
 
 // Strips the Version and TS from the end of the string
-Status DBNemoImpl::StripVersionAndTS(PinnableSlice* str) {
+Status DBNemoImpl::StripVersionAndTS(std::string* str) {
   Status st;
-  if (str->size() < kVersionLength + kTSLength) {
+  if (str->length() < kVersionLength + kTSLength) {
     return Status::Corruption("Bad version-timestamp in key-value");
   }
   // Erasing characters which hold the TS
-  str->remove_suffix(kVersionLength + kTSLength);
+  str->erase(str->length() - kVersionLength - kTSLength, kVersionLength + kTSLength);
   return st;
 }
 
@@ -189,7 +189,7 @@ Status DBNemoImpl::Put(const WriteOptions& options, ColumnFamilyHandle* column_f
 
 Status DBNemoImpl::Get(const ReadOptions& options,
     ColumnFamilyHandle* column_family, const Slice& key,
-	PinnableSlice* value) {
+	std::string* value) {
   Status st = db_->Get(options, column_family, key, value);
   if (!st.ok()) {
     return st;
