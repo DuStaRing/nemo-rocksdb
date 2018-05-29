@@ -16,7 +16,7 @@ static NemoCompactionFilterFactory* g_compaction_filter_factory = nullptr;
 void DBNemoImpl::SanitizeOptions(ColumnFamilyOptions* options,
                                     Env* env, char meta_prefix) {
   if (options->compaction_filter) {
-    options->compaction_filter = g_compaction_filter = 
+    options->compaction_filter = g_compaction_filter =
         new NemoCompactionFilter(env, options->compaction_filter, nullptr, meta_prefix);
   } else {
     g_compaction_filter_factory = new NemoCompactionFilterFactory(
@@ -142,6 +142,17 @@ bool DBNemoImpl::IsStale(int32_t timestamp, Env* env) {
   }
   int64_t curtime;
   if (!env->GetCurrentTime(&curtime).ok()) {
+    return false;  // Treat the data as fresh if could not get current time
+  }
+  return timestamp < curtime;
+}
+
+// Checks if the string is stale or not according to timestamp provided
+bool DBNemoImpl::IsStale(int32_t timestamp, int64_t curtime) {
+  if (timestamp <= 0) {  // Data is fresh if TTL is non-positive
+    return false;
+  }
+  if (curtime == -1) {
     return false;  // Treat the data as fresh if could not get current time
   }
   return timestamp < curtime;
@@ -662,7 +673,7 @@ void DBNemoImpl::StopAllBackgroundWork(bool wait) {
   CancelAllBackgroundWork(db_, wait);
 }
 
-Status DBNemoImpl::AppendVersionAndTS(const Slice& val, 
+Status DBNemoImpl::AppendVersionAndTS(const Slice& val,
     std::string* val_with_ver_ts, Env* env, uint32_t version, int32_t ttl) {
 
   val_with_ver_ts->reserve(kVersionLength + kTSLength + val.size());
@@ -685,10 +696,10 @@ Status DBNemoImpl::AppendVersionAndTS(const Slice& val,
   }
   val_with_ver_ts->append(ts_string, kTSLength);
 
-  return Status::OK(); 
+  return Status::OK();
 }
 
-Status DBNemoImpl::AppendVersionAndExpiredTime(const Slice& val, 
+Status DBNemoImpl::AppendVersionAndExpiredTime(const Slice& val,
     std::string* val_with_ver_ts, Env* env, uint32_t version, int32_t expire_time) {
 
   val_with_ver_ts->reserve(kVersionLength + kTSLength + val.size());
@@ -702,7 +713,7 @@ Status DBNemoImpl::AppendVersionAndExpiredTime(const Slice& val,
   EncodeFixed32(ts_string, (int32_t)(expire_time));
   val_with_ver_ts->append(ts_string, kTSLength);
 
-  return Status::OK(); 
+  return Status::OK();
 }
 
 bool DBNemoImpl::GetVersionAndTS(DB* db, char meta_prefix,
@@ -739,7 +750,7 @@ bool DBNemoImpl::GetVersionAndTS(DB* db, char meta_prefix,
     return true;
   }
 
-  return false; 
+  return false;
 
 }
 
