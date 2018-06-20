@@ -115,7 +115,8 @@ class DBNemoImpl : public DBNemo {
   Status SanityCheckVersionAndTS(const Slice& key, const Slice& val);
 
   static bool IsStale(int32_t timestamp, Env* env);
-  
+  static bool IsStale(int32_t timestamp, int64_t curtime);
+
   static Status ExtractVersionAndTS(const Slice& value, uint32_t* version, int32_t *timestamp);
 
   static void ExtractUserKey(char meta_prefix, const Slice& key, std::string* user_key);
@@ -227,7 +228,7 @@ class NemoIterator : public Iterator {
   std::string user_key_;
   uint32_t version_;
   int32_t timestamp_;
-  
+
   bool IsAlive() {
 
     uint32_t ver;
@@ -300,6 +301,9 @@ class NemoCompactionFilter : public CompactionFilter {
     if (!user_comp_filter_) {
       user_comp_filter_ = user_comp_filter_from_factory_.get();
     }
+    if (!(env_->GetCurrentTime(&curtime_)).ok()) {
+      curtime_ = -1;
+    }
   }
 
   virtual bool Filter(int level, const Slice& key, const Slice& old_val,
@@ -332,6 +336,7 @@ class NemoCompactionFilter : public CompactionFilter {
   Env* env_;
   const CompactionFilter* user_comp_filter_;
   DB* db_;
+  int64_t curtime_;
   char meta_prefix_;
   mutable std::string user_key_;
   mutable uint32_t version_;
@@ -350,7 +355,7 @@ class NemoCompactionFilter : public CompactionFilter {
 //    std::cout << "old_version: " << ver << " old_TS: " << ts << std::endl;
 
     if (meta_prefix_ == kMetaPrefixKv) {
-      if (DBNemoImpl::IsStale(ts, env_)) {
+      if (DBNemoImpl::IsStale(ts, curtime_)) {
 //        std::cout << "Should Drop " << key.ToString() << std::endl;
         return true;
       } else {
@@ -366,8 +371,7 @@ class NemoCompactionFilter : public CompactionFilter {
         return false;
       }
 
-      int64_t curtime;
-      if (!(env_->GetCurrentTime(&curtime)).ok()) {
+      if (curtime_ == -1) {
         return false;
       }
 
@@ -377,8 +381,8 @@ class NemoCompactionFilter : public CompactionFilter {
       int32_t meta_timestamp = DecodeFixed32(old_val.data() + old_val.size() -
           DBNemoImpl::kTSLength);
 
-      if (meta_timestamp != 0 && meta_timestamp < curtime) {
-//        std::cout << "meta_key: " <<key.ToString() << " timestamp: " << meta_timestamp << ", curtime: " << curtime << " Drop" << std::endl;
+      if (meta_timestamp != 0 && meta_timestamp < curtime_) {
+//        std::cout << "meta_key: " <<key.ToString() << " timestamp: " << meta_timestamp << ", curtime: " << curtime_ << " Drop" << std::endl;
         return true;
       }
 
@@ -387,8 +391,8 @@ class NemoCompactionFilter : public CompactionFilter {
 //        std::cout << "meta_key: " <<key.ToString() << " size: " << meta_size << ", reserve" << std::endl;
         return false;
       }
-      if (meta_version < curtime) {
-//        std::cout << "meta_key: " <<key.ToString() << " version: " << meta_version << " timestamp: " << meta_timestamp << " curtime: " << curtime << " Drop" << std::endl;
+      if (meta_version < curtime_) {
+//        std::cout << "meta_key: " <<key.ToString() << " version: " << meta_version << " timestamp: " << meta_timestamp << " curtime: " << curtime_ << " Drop" << std::endl;
         return true;
       }
       return false;
@@ -408,7 +412,7 @@ class NemoCompactionFilter : public CompactionFilter {
 //      std::cout << "Update meta, meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
     }
 
-    if (!find_meta_ || ver < version_ || DBNemoImpl::IsStale(timestamp_, env_)) {
+    if (!find_meta_ || ver < version_ || DBNemoImpl::IsStale(timestamp_, curtime_)) {
 //      std::cout << "should drop" << std::endl;
 //      std::cout << "data_key: " <<key.ToString() << " find_meta_: " << find_meta_ << " version: " << version_ << " ver: " << ver << " Drop" << std::endl;
       return true;
@@ -444,7 +448,7 @@ class NemoCompactionFilterFactory : public CompactionFilterFactory {
   virtual const char* Name() const override {
     return "NemoCompactionFilterFactory";
   }
-  
+
   void SetDBAndMP(DB* db, char meta_prefix) const {
     db_ = db;
     meta_prefix_ = meta_prefix;
